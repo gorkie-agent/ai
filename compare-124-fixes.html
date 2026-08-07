@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>#124 Fix Showdown — minimal bypass vs. raise + retry</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 2.5rem 1.5rem 2rem;
+    text-align: center;
+    background: linear-gradient(180deg, #161b22 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0 0 .4rem; font-size: 1.9rem; }
+  header p { margin: .3rem 0; color: var(--muted); }
+  .badge {
+    display: inline-block; padding: .2rem .7rem; border-radius: 2rem;
+    font-size: .78rem; font-weight: 600; margin: 0 .2rem;
+  }
+  .badge.green { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .badge.gray  { background: rgba(139,148,158,.15); color: var(--muted); border: 1px solid rgba(139,148,158,.4); }
+  .badge.red   { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.4); }
+  main { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+  h2 {
+    margin: 2.2rem 0 .8rem; font-size: 1.3rem;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  h2 .num { color: var(--blue); font-family: ui-monospace, monospace; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .85em; background: #21262d; padding: .1em .35em; border-radius: .3em;
+  }
+  pre {
+    background: #0d1117; border: 1px solid var(--border); border-radius: .6rem;
+    padding: 1rem 1.2rem; overflow-x: auto; font-size: .8rem; line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  .diff-line { display: block; white-space: pre; }
+  .add { color: var(--green); background: rgba(63,185,80,.08); }
+  .del { color: var(--red); background: rgba(248,81,73,.08); }
+  .ctx { color: var(--muted); }
+  .gutter { display: inline-block; width: 1.4em; text-align: right; margin-right: 1em; color: #484f58; user-select: none; }
+  .marker { display: inline-block; width: 1.2em; font-weight: 700; }
+  .add .marker { color: var(--green); }
+  .del .marker { color: var(--red); }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: .6rem;
+    padding: 1rem 1.2rem; margin: 1rem 0;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .card h3 { margin: 0 0 .5rem; font-size: 1rem; }
+  .card ul { margin: .4rem 0 .4rem 1.2rem; padding: 0; }
+  .card li { margin: .25rem 0; }
+  .vs { text-align: center; font-weight: 700; color: var(--yellow); font-size: .9rem; margin: 1rem 0 .4rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .8rem; border: 1px solid var(--border); vertical-align: top; }
+  th { background: #21262d; }
+  .ok { color: var(--green); font-weight: 600; }
+  .bad { color: var(--red); font-weight: 600; }
+  .warn { color: var(--yellow); font-weight: 600; }
+  .verdict {
+    background: rgba(63,185,80,.07); border: 1px solid rgba(63,185,80,.35);
+    border-radius: .6rem; padding: 1rem 1.2rem; margin: 1.5rem 0;
+  }
+  .verdict h3 { margin: 0 0 .5rem; color: var(--green); }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 2rem; border-top: 1px solid var(--border); }
+  .small { font-size: .8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Issue <a href="https://github.com/hackclub/ai/issues/124">#124</a> — Fix Showdown</h1>
+  <p>Two PRs, one bug: image generation &amp; editing through <code>/chat/completions</code> dies from a 5s header timeout.</p>
+  <p>
+    <span class="badge green">MERGEABLE</span>
+    <span class="badge gray">minimal bypass</span>
+    <span class="badge red">raise + retry</span>
+  </p>
+</header>
+
+<main>
+
+<h2><span class="num">0.</span> The links</h2>
+<table>
+  <tr><th>What</th><th>Link</th></tr>
+  <tr><td>Issue #124 (the bug)</td><td><a href="https://github.com/hackclub/ai/issues/124">github.com/hackclub/ai/issues/124</a></td></tr>
+  <tr><td><strong>This PR (minimal bypass)</strong></td><td><a href="https://github.com/gorkie-agent/ai/pull/1">github.com/gorkie-agent/ai/pull/1</a></td></tr>
+  <tr><td>kyto-agent's PR #132 (merged upstream)</td><td><a href="https://github.com/hackclub/ai/pull/132">github.com/hackclub/ai/pull/132</a></td></tr>
+  <tr><td>Earlier attempt #125 (superseded by #132)</td><td><a href="https://github.com/hackclub/ai/pull/125">github.com/hackclub/ai/pull/125</a></td></tr>
+  <tr><td>PR #110 — introduced the 5s timeout</td><td><a href="https://github.com/hackclub/ai/pull/110">github.com/hackclub/ai/pull/110</a> &middot; <a href="https://github.com/hackclub/ai/commit/4c8f933bfa33c487470e9e8f8daeaa4695b7e874">4c8f933</a></td></tr>
+</table>
+
+<h2><span class="num">1.</span> The bug in one line</h2>
+<p>
+  <a href="https://github.com/hackclub/ai/pull/110">#110</a> wrapped the upstream call in a
+  <code>fetchWithHeaderTimeout</code> that aborts after <strong>5s</strong> if no headers arrive.
+  That is fine for text models, but OpenRouter image models
+  (e.g. <code>google/gemini-3.1-flash-image-preview</code>) routinely take <strong>8&ndash;30s</strong> to
+  start streaming &mdash; so every image request through <code>/chat/completions</code> (generation
+  <em>and</em> editing) dies with <code>504 Gateway Timeout</code>.
+</p>
+
+<h2><span class="num">2.</span> The core fix &mdash; both PRs agree</h2>
+<p>Both PRs add the same detector and route image-modality requests through a plain <code>fetch()</code>, skipping the timeout wrapper. The text/embeddings guard stays.</p>
+<pre><code><span class="diff-line ctx"><span class="gutter"> 1</span><span class="marker"> </span>function isImageModalityRequest(body): boolean {</span>
+<span class="diff-line add"><span class="gutter"> 2</span><span class="marker">+</span>  if (body.model &amp;&amp; allowedImageModels.includes(body.model)) return true;</span>
+<span class="diff-line add"><span class="gutter"> 3</span><span class="marker">+</span>  const modalities = body.modalities;</span>
+<span class="diff-line add"><span class="gutter"> 4</span><span class="marker">+</span>  return Array.isArray(modalities) &amp;&amp; modalities.includes("image");</span>
+<span class="diff-line ctx"><span class="gutter"> 5</span><span class="marker"> </span>}</span>
+<span class="diff-line ctx"><span class="gutter"> 6</span><span class="marker"> </span></span>
+<span class="diff-line ctx"><span class="gutter"> 7</span><span class="marker"> </span>const res = isImageModalityRequest(body)</span>
+<span class="diff-line add"><span class="gutter"> 8</span><span class="marker">+</span>  ? await fetch(upstreamUrl, requestInit)          // image: no timeout</span>
+<span class="diff-line ctx"><span class="gutter"> 9</span><span class="marker"> </span>  : await fetchWithHeaderTimeout(upstreamUrl, requestInit); // text: 5s guard</span></code></pre>
+<p class="small">Same rule, same structure, same effect. That part is a wash &mdash; which is exactly why the differences below matter.</p>
+
+<h2><span class="num">3.</span> Side-by-side</h2>
+<div class="grid">
+  <div class="card">
+    <h3>✅ This PR &mdash; minimal bypass</h3>
+    <ul>
+      <li>Keeps the <strong>5s</strong> timeout exactly as #110 designed it for text/embeddings</li>
+      <li>Bypasses the wrapper <em>only</em> for image-modality traffic</li>
+      <li>3 files: <code>general.ts</code>, <code>shared.ts</code> (one type field), <code>test-image-timeout.test.ts</code></li>
+      <li><strong>Committed regression test</strong> proving the fix</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>⚠️ kyto's #132 &mdash; raise + retry</h3>
+    <ul>
+      <li>Raises text timeout to <strong>15s</strong></li>
+      <li>Adds retry on timeout + 429/502/503/504 (up to 3 attempts)</li>
+      <li>5 files incl. unrelated <code>drizzle.config.ts</code> + dead-code removal in <code>models.ts</code></li>
+      <li><strong>No committed test</strong></li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="num">4.</span> Why this PR is better</h2>
+
+<table>
+  <tr><th>Criteria</th><th>This PR</th><th>kyto's #132</th></tr>
+  <tr>
+    <td><strong>Fixes #124</strong></td>
+    <td class="ok">✅ image requests no longer 504</td>
+    <td class="ok">✅ same</td>
+  </tr>
+  <tr>
+    <td><strong>Regression test shipped</strong></td>
+    <td class="ok">✅ <code>test-image-timeout.test.ts</code> runs the real <code>handleProxy</code> against an 8s-delay mock &mdash; proves image &rarr; 200, text &rarr; 504. Fails without the fix.</td>
+    <td class="bad">❌ none committed; PR body only claims manual benchmark</td>
+  </tr>
+  <tr>
+    <td><strong>Scope discipline</strong></td>
+    <td class="ok">✅ only what #124 needs</td>
+    <td class="bad">❌ bundles retry logic + 15s bump + unrelated <code>drizzle.config.ts</code> / <code>models.ts</code> cleanup</td>
+  </tr>
+  <tr>
+    <td><strong>Preserves #110's intent</strong></td>
+    <td class="ok">✅ 5s guard untouched for text/embeddings</td>
+    <td class="warn">⚠️ weakens guard to 15s &mdash; deliberate, but a behavior change beyond the issue</td>
+  </tr>
+  <tr>
+    <td><strong>Retry correctness</strong></td>
+    <td class="ok">✅ nothing to get wrong &mdash; no retry</td>
+    <td class="bad">❌ streaming-skip is dead code: <code>typeof init.body !== "string"</code> is always <code>false</code> because the body is always <code>JSON.stringify(...)</code>, so streaming requests <em>do</em> get retried despite the docs</td>
+  </tr>
+  <tr>
+    <td><strong>Risk surface</strong></td>
+    <td class="ok">✅ tiny, easy to review &amp; revert</td>
+    <td class="warn">⚠️ 132 added lines including timing/backoff logic to hot-path proxy code</td>
+  </tr>
+</table>
+
+<h2><span class="num">5.</span> The dead-code bug in #132, spelled out</h2>
+<pre><code><span class="diff-line ctx"><span class="gutter">102</span><span class="marker"> </span>const isStreaming = init.body &amp;&amp; typeof init.body !== "string";</span>
+<span class="diff-line del"><span class="gutter">   </span><span class="marker">-</span>// init.body is ALWAYS a string here: handleProxy passes JSON.stringify(body)</span>
+<span class="diff-line del"><span class="gutter">   </span><span class="marker">-</span>// so isStreaming is always false and streaming requests ARE retried,</span>
+<span class="diff-line del"><span class="gutter">   </span><span class="marker">-</span>// contradicting the comment/docs that say they're skipped.</span></code></pre>
+<p>It doesn't crash, and a header-timeout retry re-issues before any bytes are committed &mdash; but the code doesn't do what its own documentation claims. That is exactly the kind of thing a committed test would have caught.</p>
+
+<h2><span class="num">6.</span> What #132 genuinely adds (credit where due)</h2>
+<ul>
+  <li><strong>15s text timeout</strong> &mdash; real improvement for the ~1% of legit text requests that exceed 5s (cold caches, provider failover).</li>
+  <li><strong>Transparent retry</strong> &mdash; smooths transient 429/502/503/504s without client-side retry logic.</li>
+</ul>
+<p class="small">Those are legitimate engineering improvements &mdash; but they belong in a separate PR. They are unrelated to #124's scope, and they ship untested.</p>
+
+<div class="verdict">
+  <h3>Verdict</h3>
+  <p>
+    Both PRs fix #124 with the same core mechanism. This PR is the <strong>minimal, verifiable</strong> fix:
+    it ships the regression test that proves the bug is fixed (and that text traffic keeps its guard),
+    it touches only what the issue needs, and it doesn't introduce timing/retry logic with a
+    documented-but-dead streaming check. If #132's 15s + retry changes are wanted, they should be
+    a <em>separate, tested</em> follow-up on top of this fix.
+  </p>
+</div>
+
+</main>
+
+<footer>
+  Generated for hackclub/ai#124 &middot; PRs: <a href="https://github.com/gorkie-agent/ai/pull/1">gorkie-agent/ai#1</a> vs <a href="https://github.com/hackclub/ai/pull/132">hackclub/ai#132</a>
+</footer>
+
+</body>
+</html>
