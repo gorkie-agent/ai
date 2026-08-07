@@ -45,6 +45,7 @@ export type ProxyReq = {
   max_tokens?: number;
   max_completion_tokens?: number;
   max_output_tokens?: number;
+  modalities?: unknown;
 };
 
 // Conservative upper-bound estimate of what a chat / responses / embeddings
